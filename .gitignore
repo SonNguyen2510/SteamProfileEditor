@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# PyInstaller build output
+build/
+dist/
+*.manifest
+
+# Local Claude memory / notes
+.claude/
+
+# Art assets (third-party / copyrighted WE + anime content) — keep only scripts
+Art/*
+!Art/*.py
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
