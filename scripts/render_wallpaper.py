@@ -21,11 +21,12 @@ import ascii_steam  # noqa: E402
 import we_tex  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PKGDIR = os.path.join(HERE, "3558307409_VSTHEMES-ORG", "3558307409")
+ART = os.path.join(os.path.dirname(HERE), "Art")   # assets live in ../Art
+PKGDIR = os.path.join(ART, "3558307409_VSTHEMES-ORG", "3558307409")
 BG_PATH = os.path.join(PKGDIR, "Makima_source_1920x1080.png")
 WE = ("E:/Sonnie/Personal/Steam/steamapps/common/wallpaper_engine/assets/"
       "materials/")
-DEFAULT_OUT = os.path.join(HERE, "Makima_portrait.gif")
+DEFAULT_OUT = os.path.join(ART, "Makima_portrait.gif")
 
 FRAMES = 90              # 30 fps * 3 s seamless loop
 FRAME_MS = 33            # 30 fps, like the real wallpaper

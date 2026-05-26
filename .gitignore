@@ -13,9 +13,8 @@ dist/
 # Local Claude memory / notes
 .claude/
 
-# Art assets (third-party / copyrighted WE + anime content) — keep only scripts
-Art/*
-!Art/*.py
+# Art assets (third-party / copyrighted WE + anime content)
+Art/
 
 # OS / editor
 Thumbs.db
