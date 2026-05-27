@@ -28,9 +28,11 @@ WE = ("E:/Sonnie/Personal/Steam/steamapps/common/wallpaper_engine/assets/"
       "materials/")
 DEFAULT_OUT = os.path.join(ART, "Makima_portrait.gif")
 
-FRAMES = 90              # 30 fps * 3 s seamless loop
+FRAMES = 120             # 30 fps * 4 s seamless LOOP (GIF repeat length)
 FRAME_MS = 33            # 30 fps, like the real wallpaper
-N_LEAVES = 50
+LIFE_LOOPS = 3           # leaf LIFETIME = LIFE_LOOPS x loop (here 12 s) — leaves
+#                          live/travel far longer than the loop, decoupled from it
+N_LEAVES = 40            # distinct leaves; on-screen count = N_LEAVES * LIFE_LOOPS
 N_HALO = 42
 
 # Aspect ratios (width / height). None = free (independent width & height).
@@ -95,24 +97,70 @@ def render_effect(bg, out_path):
     domX, domY = W + 2 * MARGIN, H + 2 * MARGIN
     loop_s = FRAMES * FRAME_MS / 1000.0
 
+    # --- divergence-free curl-noise field, PERIODIC in loop_s so it loops ---
+    # Potential P = sum A_k sin(k.x + w_k t + ph); velocity = curl(P) =
+    # (dP/dy, -dP/dx). Temporal freqs are integer multiples of 1/loop_s, so the
+    # whole field repeats exactly each loop. This replaces the old sine "sway"
+    # with a real, organic, swirling flow (the JSON's turbulentvelocity).
+    comps = []
+    for l_frac, m_max in ((1.15, 1), (0.62, 2), (0.4, 3)):
+        for _ in range(2):
+            k = 2 * math.pi / (max(W, H) * l_frac)
+            th = rng.uniform(0, 2 * math.pi)
+            comps.append((k * math.cos(th), k * math.sin(th),
+                          2 * math.pi * rng.choice([1, -1]) * rng.randint(1, m_max)
+                          / loop_s, rng.uniform(0, 2 * math.pi)))
+    knorm = sum(math.hypot(kx, ky) for kx, ky, _, _ in comps)
+
+    def curl(x, y, t):
+        tx = ty = 0.0
+        for kx, ky, w, ph in comps:
+            c = math.cos(kx * x + ky * y + w * t + ph)
+            tx += ky * c            # dP/dy
+            ty -= kx * c            # -dP/dx
+        return tx / knorm, ty / knorm        # ~ unit range
+
+    TURB_GAIN = 2.2
+    dt = loop_s / FRAMES
+    LIFE = FRAMES * LIFE_LOOPS                       # leaf lifetime in frames
+
+    # --- leaves as a REAL particle sim (Euler integration over full lifetime) ---
+    # Lifetime (LIFE) is decoupled from the loop (FRAMES): each leaf integrates a
+    # long trajectory and is shown as LIFE_LOOPS overlapping copies offset by one
+    # loop, so the on-screen ensemble repeats every loop (seamless) while each
+    # leaf still lives/travels for the full, much longer lifetime.
     leaves = []
-    for _ in range(N_LEAVES):
+    for i in range(N_LEAVES):
         sheet = leaves1 if rng.random() < 0.78 else leaves2
-        size19 = rng.uniform(40, 130)
-        dof = abs(size19 - 75) / 30.0
-        vx19 = -rng.uniform(68, 135)                 # left
-        vy19 = rng.uniform(20, 135)                  # down
+        # Random size spread for variety (a little smaller overall), skewed so
+        # most leaves are small-to-mid with a few larger ones.
+        size19 = rng.uniform(30, 58) if rng.random() < 0.7 else rng.uniform(58, 95)
+        b = int(i * LIFE / N_LEAVES)                 # even birth phase (continuous)
+        vx = -rng.uniform(50, 100) * S               # JSON velocity x: -100..-50 (left)
+        vy = rng.uniform(15, 100) * S                # JSON velocity y: -100..-15 (down)
+        ti, ta = rng.uniform(35, 100) * S * 0.5, rng.uniform(0, 2 * math.pi)
+        vx += math.cos(ta) * ti                      # turbulent INITIAL velocity
+        vy += math.sin(ta) * ti
+        turb_spd = rng.uniform(20, 55) * S           # ongoing turbulence
+        grav = 4 * S                                 # very gentle downward accel px/s^2
+        px = rng.uniform(-MARGIN, W + MARGIN)
+        py = rng.uniform(-MARGIN, H + MARGIN)
+        traj = []
+        for j in range(LIFE):                        # integrate one full lifetime
+            traj.append((px, py))
+            tg = ((j - b) % FRAMES) * dt             # loop time this age is shown at
+            cx, cy = curl(px, py, tg)
+            ex = vx + cx * turb_spd * TURB_GAIN
+            ey = vy + grav * (j * dt) + cy * turb_spd * TURB_GAIN
+            px += ex * dt
+            py += ey * dt
         leaves.append({
             "sheet": sheet, "h": max(6, int(size19 * S)),
-            "blur": min(3.4, dof * 1.5),
-            "depth_a": 1.0 if size19 < 95 else 0.84,
-            "phase": rng.random(),
-            "x0": rng.uniform(0, domX), "y0": rng.uniform(0, domY),
-            "travelX": vx19 * loop_s * S, "travelY": vy19 * loop_s * S,
-            "swayA": rng.uniform(35, 100) * 0.35 * S,
-            "swayCyc": rng.choice([1.5, 2, 2.5, 3]), "swayPh": rng.random(),
-            "spin": rng.uniform(-0.5, 0.5), "ang0": rng.uniform(0, 360),
-            "animCycles": 3, "animPh": rng.random(),
+            "b": b, "traj": traj,
+            # ~one tumble + gentle z-spin over the full (long) fall.
+            "spin": rng.uniform(-0.6, 0.6),          # gentle z-rotation over life
+            "ang0": rng.uniform(0, 360),             # rotationrandom (initial angle)
+            "animCycles": 1.0, "animPh": rng.random(),  # ~1 tumble over the life
             "alpha": 0.68 * rng.uniform(0.82, 1.0),
         })
 
@@ -146,17 +194,28 @@ def render_effect(bg, out_path):
             add_region(frame, g, x, y)
         frame = frame.convert("RGBA")
         for p in leaves:
-            u = (p["phase"] + t) % 1.0
-            sway = p["swayA"] * math.sin(2 * math.pi * (p["swayCyc"] * u + p["swayPh"]))
-            x = (p["x0"] + p["travelX"] * u) % domX - MARGIN
-            y = (p["y0"] + p["travelY"] * u) % domY - MARGIN + sway
-            fade = min(1.0, u / 0.12, (1.0 - u) / 0.12)
-            fi = int((p["animPh"] + p["animCycles"] * u) * len(p["sheet"])) % len(p["sheet"])
-            spr = scaled(p["sheet"][fi], p["h"], ang=p["ang0"] + 360 * p["spin"] * u,
-                         alpha=p["alpha"] * p["depth_a"] * max(0, fade))
-            if p["blur"] > 0.3:
-                spr = spr.filter(ImageFilter.GaussianBlur(p["blur"]))
-            frame.alpha_composite(spr, (int(x - spr.width / 2), int(y - spr.height / 2)))
+            n = len(p["sheet"])
+            # Show LIFE_LOOPS copies, each offset by one loop, so the ensemble
+            # repeats every loop while each leaf lives the full lifetime.
+            for kc in range(LIFE_LOOPS):
+                age = (p["b"] + f + kc * FRAMES) % LIFE      # age along the long life
+                u = age / LIFE
+                # smoothstep fade in/out (mimics WE alphafade; hides birth/death)
+                ff = min(1.0, u / 0.14, (1.0 - u) / 0.14)
+                fade = ff * ff * (3 - 2 * ff)
+                if fade <= 0:
+                    continue
+                x, y = p["traj"][age]
+                # interpolate between sheet poses for a smooth (non-choppy) tumble
+                fpos = (p["animPh"] + p["animCycles"] * u) * n
+                i0 = int(fpos) % n
+                frac = fpos - math.floor(fpos)
+                pose = (p["sheet"][i0] if frac < 0.04
+                        else Image.blend(p["sheet"][i0], p["sheet"][(i0 + 1) % n], frac))
+                spr = scaled(pose, p["h"], ang=p["ang0"] + 360 * p["spin"] * u,
+                             alpha=p["alpha"] * fade)
+                frame.alpha_composite(spr, (int(x - spr.width / 2),
+                                            int(y - spr.height / 2)))
         out_frames.append(frame.convert("RGB"))
         durs.append(FRAME_MS)
 
